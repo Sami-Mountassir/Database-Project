@@ -1,0 +1,10 @@
+n_revisions,variant,query,median_ms,data_mb,index_mb,load_s
+100,plain,as_of_old,1.353,6.83,0.0,0.38
+100,plain,as_of_middle,1.475,6.83,0.0,0.38
+100,plain,as_of_recent,0.806,6.83,0.0,0.38
+1000,plain,as_of_old,11.06,49.53,0.0,2.46
+1000,plain,as_of_middle,5.794,49.53,0.0,2.46
+1000,plain,as_of_recent,0.824,49.53,0.0,2.46
+10000,plain,as_of_old,82.877,342.08,0.0,25.5
+10000,plain,as_of_middle,39.479,342.08,0.0,25.5
+10000,plain,as_of_recent,0.823,342.08,0.0,25.5
