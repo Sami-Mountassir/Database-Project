@@ -17,6 +17,7 @@ import pymysql
 HOST, PORT, USER, PASSWORD = "127.0.0.1", 3306, "bench", "bench"
 DB = "timemachine_bench"
 SIZES = [100, 1000, 10000]      # revisions per run
+VARIANTS = ["plain", "partitioned"]
 CONTENT_KB = 20                 # approx article size per revision
 RUNS = 7                        # timed runs per query (first is dropped)
 START = datetime(2015, 1, 1, tzinfo=timezone.utc)
@@ -38,17 +39,25 @@ def make_text(kb):
     return " ".join(random.choices(words, k=kb * 1024 // 6))[: kb * 1024]
 
 
-def load(conn, n):
-    """One article, n revisions. Revision i gets fake time START + i*STEP."""
+def load(conn, n, variant):
+    """Create one article with n revisions in the requested table variant."""
     base = make_text(CONTENT_KB)
     t0 = int(START.timestamp())
+    partition_clause = ""
+    if variant == "partitioned":
+        partition_clause = """
+            PARTITION BY SYSTEM_TIME (
+                PARTITION p_history HISTORY,
+                PARTITION p_current CURRENT
+            )"""
+
     with conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS page")
-        cur.execute("""CREATE TABLE page (
+        cur.execute(f"""CREATE TABLE page (
             page_id INT PRIMARY KEY,
             title VARCHAR(255),
             content MEDIUMTEXT
-        ) WITH SYSTEM VERSIONING""")
+        ) WITH SYSTEM VERSIONING{partition_clause}""")
         start = time.perf_counter()
         cur.execute(f"SET timestamp = {t0}")
         cur.execute("INSERT INTO page VALUES (1, 'Test', %s)", (base + " rev0",))
@@ -84,6 +93,16 @@ def time_query(conn, sql):
     return statistics.median(times[1:]), rows
 
 
+def partition_metadata(conn):
+    with conn.cursor() as cur:
+        cur.execute("""SELECT PARTITION_NAME
+                       FROM information_schema.PARTITIONS
+                       WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'page'
+                       ORDER BY PARTITION_NAME""", (DB,))
+        names = [row[0] for row in cur.fetchall() if row[0] is not None]
+    return len(names), ",".join(names)
+
+
 def main():
     admin = connect()
     with admin.cursor() as cur:
@@ -92,25 +111,37 @@ def main():
 
     results = []
     for n in SIZES:
-        conn = connect(DB)
-        load_s = load(conn, n)
-        data_mb, idx_mb = table_size_mb(conn)
-        print(f"N={n}: load {load_s:.1f}s, data {data_mb:.1f} MB, index {idx_mb:.1f} MB")
+        for variant in VARIANTS:
+            conn = connect(DB)
+            load_s = load(conn, n, variant)
+            data_mb, idx_mb = table_size_mb(conn)
+            partition_count, partition_names = partition_metadata(conn)
+            print(f"N={n} {variant}: load {load_s:.1f}s, data {data_mb:.1f} MB, "
+                  f"index {idx_mb:.1f} MB, partitions {partition_count}")
 
-        t0 = int(START.timestamp())
-        points = {"old": 0, "middle": n // 2, "recent": n - 1}
-        for name, i in points.items():
-            ts = datetime.fromtimestamp(t0 + i * STEP_SECONDS + 60, timezone.utc)
-            sql = (f"SELECT page_id, LEFT(content, 40) FROM page "
-                   f"FOR SYSTEM_TIME AS OF TIMESTAMP'{ts:%Y-%m-%d %H:%M:%S}' "
-                   f"WHERE page_id = 1")
-            ms, rows = time_query(conn, sql)
-            ok = rows and rows[0][1] is not None and rows[0][1] != ""
-            print(f"  AS OF {name}: {ms:.2f} ms (row found: {bool(ok)})")
-            results.append({"n_revisions": n, "variant": "plain", "query": f"as_of_{name}",
-                            "median_ms": round(ms, 3), "data_mb": round(data_mb, 2),
-                            "index_mb": round(idx_mb, 2), "load_s": round(load_s, 2)})
-        conn.close()
+            t0 = int(START.timestamp())
+            points = {"old": 0, "middle": n // 2, "recent": n - 1}
+            for name, i in points.items():
+                ts = datetime.fromtimestamp(t0 + i * STEP_SECONDS + 60, timezone.utc)
+                sql = (f"SELECT page_id, content FROM page "
+                       f"FOR SYSTEM_TIME AS OF TIMESTAMP'{ts:%Y-%m-%d %H:%M:%S}' "
+                       f"WHERE page_id = 1")
+                ms, rows = time_query(conn, sql)
+                correct_content = bool(rows and rows[0][1] is not None and
+                                      rows[0][1].endswith(f" rev{i}"))
+                if not correct_content:
+                    raise AssertionError(
+                        f"{variant} AS OF {name}: expected rev{i}, got {rows[0][1][-30:] if rows else None}"
+                    )
+                print(f"  AS OF {name}: {ms:.2f} ms, content correct: {correct_content}")
+                results.append({"n_revisions": n, "variant": variant,
+                                "query": f"as_of_{name}", "median_ms": round(ms, 3),
+                                "data_mb": round(data_mb, 2),
+                                "index_mb": round(idx_mb, 2), "load_s": round(load_s, 2),
+                                "partition_count": partition_count,
+                                "partition_names": partition_names,
+                                "correct_content": correct_content})
+            conn.close()
 
     with open("results.csv", "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=results[0].keys())
