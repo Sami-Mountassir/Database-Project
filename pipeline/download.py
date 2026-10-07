@@ -16,7 +16,7 @@ for title in articles:
         "format": "json",
         "prop": "revisions",
         "titles": title,
-        "rvprop": "ids|timestamp|content",
+        "rvprop": "ids|timestamp|content|user",
         "rvslots": "main",
         "rvlimit": 5  
     }
