@@ -38,11 +38,12 @@ for article_data in raw_data:
         
         # Matches ER Model exactly: ARTICLE VERSION (article_id, ver_date, content)
         clean_row = {
-            "article_id": article_id,           # ER Model: article_id
-            "article_title": article_title,     
-            "revision_id": rev.get("revid", 0), # Track data   
-            "timestamp": rev["timestamp"],      # ER Model: ver_date (historical dates)
-            "content": article_text             # ER Model: content
+               "article_id": article_id,
+               "title": article_title,
+               "revision_id": rev.get("revid", 0),
+               "revision_date": rev["timestamp"],
+               "content": article_text,
+               "author": rev.get("user", "[UNKNOWN]")
         }
         
         clean_data.append(clean_row)
