@@ -182,7 +182,7 @@ The architecture separates the historical data source from the temporal database
 The project uses:
 
 ```text
-MariaDB: [VERSION]
+MariaDB: 13.0.2-MariaDB-ubu2604
 ```
 
 The exact version is important because temporal-table behaviour and available system-versioning functionality depend on the database version.
