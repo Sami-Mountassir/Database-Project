@@ -158,6 +158,36 @@ Then:
 USE wikipedia_time_machine;
 ```
 
+## Repeated index and partition benchmark
+
+`bench_repeat.py` compares four `article` configurations using actual cleaned
+Wikipedia revisions:
+
+* The current `p_history`/`p_current` layout with the primary key only.
+* The same layout with an `(article_id, row_start, row_end)` secondary index.
+* Automatic monthly `SYSTEM_TIME` interval partitions with the primary key only.
+* Automatic monthly interval partitions with the period index.
+
+Each configuration is rebuilt and measured at least five times. Queries select
+the first, middle, and most recent revision for each article with
+`FOR SYSTEM_TIME AS OF`; correctness is checked by comparing the returned
+`revision_id` with the expected source revision ID. Connections set
+`time_zone = '+00:00'`. Both per-run measurements and mean/sample-standard-
+deviation summaries are written to CSV. Interval boundaries start at the
+oldest input revision's aligned day, week, month, or year boundary, so the
+history is split into relevant time buckets rather than falling into one
+catch-all partition.
+
+```powershell
+python bench_repeat.py --input data/sample/cleaned_revisions.json --repetitions 5
+```
+
+If the ignored `data/` file is unavailable, the checked-in three-article fixture
+is used by default. Specify a larger cleaned dataset with `--input` for more
+representative measurements. The script drops and recreates the `article` table,
+so use a dedicated database such as the default `timemachine_bench_repeat`; do
+not target `wikipedia_time_machine`.
+
 ## Timestamp note
 
 The loader procedure changes the session timestamp with:
