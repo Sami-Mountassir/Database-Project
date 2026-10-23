@@ -50,9 +50,12 @@ def verify(cursor, data, every=1):
         raise ValueError("every must be an integer >= 1")
     if not isinstance(data, list) or not data:
         raise ValueError("input must be a non-empty JSON array of revisions")
+    ordered = ordered_revisions(data)
+    if not ordered:
+        raise ValueError("input contains no loadable revisions")
     cursor.execute("SET time_zone = '+00:00'")
     per_article = defaultdict(list)
-    for revision, system_time in ordered_revisions(data):
+    for revision, system_time in ordered:
         per_article[revision["article_id"]].append((revision, system_time))
 
     failures, checked = [], 0

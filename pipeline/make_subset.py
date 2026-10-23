@@ -4,7 +4,8 @@
 
 Each article keeps its first ceil(fraction * count) revisions (by timestamp, then
 revision id), so a 25% file is literally the first quarter of the 100% history.
-At least 1 revision per article is always kept.
+At least 1 loadable revision per article is kept. Hidden/unavailable content
+is filtered by the loader before calculating each article's fraction.
 """
 import argparse
 import json

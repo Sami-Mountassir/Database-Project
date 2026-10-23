@@ -111,6 +111,15 @@ class VerifyLoadTests(unittest.TestCase):
         self.assertIn('FOR SYSTEM_TIME AS OF TIMESTAMP', sql)
         self.assertEqual(params, (42,))
 
+    def test_entirely_filtered_input_cannot_claim_success(self):
+        data = [revision(1, '2020-01-01T00:00:00Z', '[CONTENT HIDDEN OR UNAVAILABLE]')]
+        with self.assertRaisesRegex(ValueError, 'no loadable revisions'):
+            verify_load.verify(FakeCursor(data), data)
+
+    def test_hidden_content_is_excluded_from_expected_versions(self):
+        data = DATA + [revision(99, '2020-01-04T00:00:00Z', '[CONTENT HIDDEN OR UNAVAILABLE]')]
+        self.assertEqual(verify_load.verify(FakeCursor(DATA), data), (4, []))
+
 
 if __name__ == "__main__":
     unittest.main()

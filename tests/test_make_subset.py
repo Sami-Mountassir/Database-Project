@@ -13,7 +13,8 @@ import make_subset  # noqa: E402
 
 class SubsetTests(unittest.TestCase):
     def data(self):
-        return [{"article_id": a, "revision_id": r, "timestamp": f"2020-01-{r:02d}T00:00:00Z"}
+        return [{"article_id": a, "revision_id": r, "timestamp": f"2020-01-{r:02d}T00:00:00Z",
+                 "article_title": f"Article {a}", "content": f"Revision {r}", "author": "test"}
                 for a, n in ((1, 10), (2, 3)) for r in range(1, n + 1)]
 
     def test_keeps_oldest_fraction_per_article(self):
@@ -84,6 +85,15 @@ class SubsetTests(unittest.TestCase):
         data = list(reversed(self.data()))
         kept = make_subset.subset(data, 1)
         self.assertEqual([r['article_id'] for r in kept], [1] * 10 + [2] * 3)
+
+    def test_hidden_and_missing_content_follow_loader_filter(self):
+        data = self.data()[:4]
+        data[0]['content'] = '[CONTENT HIDDEN OR UNAVAILABLE]'
+        del data[1]['content']
+        data[2]['content'] = ''
+        kept = make_subset.subset(data, 0.5)
+        self.assertEqual(kept, [data[2]])
+        self.assertEqual(data[0]['content'], '[CONTENT HIDDEN OR UNAVAILABLE]')
 
 
 if __name__ == "__main__":
