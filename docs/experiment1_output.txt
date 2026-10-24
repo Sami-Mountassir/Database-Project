@@ -1,0 +1,131 @@
+MariaDB [(none)]> SOURCE /tmp/exp1.sql
+Query OK, 0 rows affected (0.001 sec)
+
+Query OK, 0 rows affected, 1 warning (0.014 sec)
+
+Query OK, 1 row affected (0.005 sec)
+
+Database changed
+Query OK, 0 rows affected, 1 warning (0.003 sec)
+
+Query OK, 0 rows affected (0.026 sec)
+
+Query OK, 0 rows affected (0.010 sec)
+
+Query OK, 1 row affected (0.009 sec)
+
+Query OK, 1 row affected (0.004 sec)
+
+Query OK, 1 row affected (0.001 sec)
+
+Query OK, 1 row affected (0.004 sec)
+
+Query OK, 1 row affected (0.001 sec)
+
+Query OK, 1 row affected (0.001 sec)
+
+Query OK, 1 row affected (0.001 sec)
+
+Query OK, 0 rows affected (0.000 sec)
+
+Query OK, 0 rows affected (0.008 sec)
+
+Query OK, 0 rows affected (0.006 sec)
+
+Query OK, 0 rows affected (0.000 sec)
+
+Query OK, 1 row affected (0.004 sec)
+
+Query OK, 2 rows affected (0.001 sec)
+
+Query OK, 2 rows affected (0.001 sec)
+
+Query OK, 2 rows affected (0.001 sec)
+
+Query OK, 2 rows affected (0.001 sec)
+
+Query OK, 2 rows affected (0.002 sec)
+
+Query OK, 2 rows affected (0.003 sec)
+
+Query OK, 2 rows affected (0.001 sec)
+
+Query OK, 2 rows affected (0.001 sec)
+
+Query OK, 2 rows affected (0.001 sec)
+
+Query OK, 2 rows affected (0.001 sec)
+
+Query OK, 2 rows affected (0.001 sec)
+
+Query OK, 2 rows affected (0.001 sec)
+
+Query OK, 2 rows affected (0.001 sec)
+
+Query OK, 0 rows affected (0.000 sec)
+
+Query OK, 2 rows affected (0.001 sec)
+
+Query OK, 0 rows affected (0.000 sec)
+
+Query OK, 2 rows affected (0.001 sec)
+
+Query OK, 0 rows affected (0.000 sec)
+
++---------+------------------------------------------+----------------------------+------------+----------+------+--------+
+| case_no | description                              | asked_text                 | session_tz | expected | got  | result |
++---------+------------------------------------------+----------------------------+------------+----------+------+--------+
+|       1 | A1 just before the first revision        | 2024-01-01 09:59:59.999999 | +00:00     |     NULL | NULL | PASS   |
+|       2 | A1 exactly on revision 1001              | 2024-01-01 10:00:00.000000 | +00:00     |     1001 | 1001 | PASS   |
+|       3 | A1 between 1001 and 1002                 | 2024-01-01 15:00:00.000000 | +00:00     |     1001 | 1001 | PASS   |
+|       4 | A1 one microsecond before 1002           | 2024-01-02 11:59:59.999999 | +00:00     |     1001 | 1001 | PASS   |
+|       5 | A1 exactly on revision 1002              | 2024-01-02 12:00:00.000000 | +00:00     |     1002 | 1002 | PASS   |
+|       6 | A1 one microsecond before 1003           | 2024-01-03 09:30:14.999999 | +00:00     |     1002 | 1002 | PASS   |
+|       7 | A1 exactly on 1003 (same second as 1004) | 2024-01-03 09:30:15.000000 | +00:00     |     1003 | 1003 | PASS   |
+|       8 | A1 one microsecond later: 1004           | 2024-01-03 09:30:15.000001 | +00:00     |     1004 | 1004 | PASS   |
+|       9 | A1 between 1004 and 1005                 | 2024-01-20 00:00:00.000000 | +00:00     |     1004 | 1004 | PASS   |
+|      10 | A1 exactly on revision 1005              | 2024-02-01 08:00:00.000000 | +00:00     |     1005 | 1005 | PASS   |
+|      11 | A1 long after the last revision          | 2025-01-01 00:00:00.000000 | +00:00     |     1005 | 1005 | PASS   |
+|      12 | A2 exactly on revision 2001              | 2024-01-02 12:00:00.000000 | +00:00     |     2001 | 2001 | PASS   |
+|      13 | A2 between 2001 and 2002                 | 2024-01-10 00:00:00.000000 | +00:00     |     2001 | 2001 | PASS   |
+|      14 | A2 exactly on revision 2002              | 2024-01-15 18:00:00.000000 | +00:00     |     2002 | 2002 | PASS   |
+|      15 | A1 text 12:00 read as UTC+2 = 10:00 UTC  | 2024-01-02 12:00:00.000000 | +02:00     |     1001 | 1001 | PASS   |
+|      16 | A1 text 07:00 read as UTC-5 = 12:00 UTC  | 2024-01-02 07:00:00.000000 | -05:00     |     1002 | 1002 | PASS   |
++---------+------------------------------------------+----------------------------+------------+----------+------+--------+
+16 rows in set (0.001 sec)
+
++-------+--------+--------+----------+
+| cases | passed | failed | summary  |
++-------+--------+--------+----------+
+|    16 |     16 |      0 | ALL PASS |
++-------+--------+--------+----------+
+1 row in set (0.002 sec)
+
++------------+-------------+----------------------------+----------------------------+----------+
+| article_id | revision_id | row_start                  | row_end                    | drift_us |
++------------+-------------+----------------------------+----------------------------+----------+
+|          1 |        1001 | 2024-01-01 10:00:00.000000 | 2024-01-02 12:00:00.000000 |        0 |
+|          1 |        1002 | 2024-01-02 12:00:00.000000 | 2024-01-03 09:30:15.000000 |        0 |
+|          1 |        1003 | 2024-01-03 09:30:15.000000 | 2024-01-03 09:30:15.000001 |        0 |
+|          1 |        1004 | 2024-01-03 09:30:15.000001 | 2024-02-01 08:00:00.000000 |        1 |
+|          1 |        1005 | 2024-02-01 08:00:00.000000 | 2106-02-07 06:28:15.999999 |        0 |
+|          2 |        2001 | 2024-01-02 12:00:00.000000 | 2024-01-15 18:00:00.000000 |        0 |
+|          2 |        2002 | 2024-01-15 18:00:00.000000 | 2106-02-07 06:28:15.999999 |        0 |
++------------+-------------+----------------------------+----------------------------+----------+
+7 rows in set (0.001 sec)
+
++--------------+
+| all_versions |
++--------------+
+|            7 |
++--------------+
+1 row in set (0.000 sec)
+
++--------------+
+| current_rows |
++--------------+
+|            2 |
++--------------+
+1 row in set (0.000 sec)
+
+MariaDB [exp1_temporal]> notee
