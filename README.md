@@ -293,7 +293,15 @@ The experiment will also record basic characteristics of the imported dataset, i
 These measurements provide a baseline for the later scalability experiments.
 
 ---
+## Result
 
+**Goal.** Show that FOR SYSTEM_TIME AS OF returns the revision that was current at any chosen moment.
+
+**Method.** 7 revisions of 2 test articles were loaded through apply_wikipedia_revision, including two revisions in the same second. They were then queried at 16 moments: before, on and between revisions, one microsecond around boundaries, and under a different session time zone.
+
+**Result.** 16 of 16 cases returned the expected revision on MariaDB 13.0.2 (output in docs/experiment1_output.txt). The two revisions in the same second (1003 and 1004) were stored one microsecond apart and both were returned correctly. The current rows end at 2106-02-07 rather than 2038-01-19, because recent MariaDB versions have a larger TIMESTAMP range.
+
+**Conclusion.** The time model is correct to the microsecond when the session time zone is UTC, which every project tool sets.
 # 9. Experiment 2 — [Title]
 
 This section will document the second project experiment once its exact objective and implementation are finalized.
