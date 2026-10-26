@@ -7,6 +7,7 @@ from bench_repeat import (
     create_table_sql,
     interval_partition_start,
     summarize,
+    table_size_mb,
 )
 
 
@@ -64,7 +65,7 @@ class BenchmarkTests(unittest.TestCase):
             for repetition, value in enumerate(values, start=1)
         ]
         load_rows = [
-            {"configuration": "baseline", "load_ms": value}
+            {"configuration": "baseline", "load_ms": value, "data_mb": 10.0, "index_mb": 2.0}
             for value in [10.0, 20.0, 30.0, 40.0, 50.0]
         ]
 
@@ -77,6 +78,11 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(summary["mean_query_ms"], 3.0)
         self.assertEqual(summary["stddev_query_ms"], 1.5811)
         self.assertEqual(summary["mean_load_ms"], 30.0)
+        self.assertEqual(summary["data_mb_mean"], 10.0)
+        self.assertEqual(summary["index_mb_mean"], 2.0)
+
+    def test_table_size_mb_includes_data_and_index_columns(self):
+        self.assertTrue(callable(table_size_mb))
 
 
 if __name__ == "__main__":

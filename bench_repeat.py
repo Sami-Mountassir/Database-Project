@@ -237,6 +237,20 @@ def query_revision(connection, point):
     return elapsed_ms
 
 
+def table_size_mb(connection, database):
+    with connection.cursor() as cursor:
+        cursor.execute("ANALYZE TABLE article")
+        cursor.fetchall()
+        cursor.execute(
+            """SELECT data_length, index_length
+               FROM information_schema.TABLES
+               WHERE table_schema = %s AND table_name = 'article'""",
+            (database,),
+        )
+        data_length, index_length = cursor.fetchone()
+    return data_length / 1048576, index_length / 1048576
+
+
 def partition_count(connection, database):
     with connection.cursor() as cursor:
         cursor.execute(
@@ -269,6 +283,8 @@ def summarize(run_rows, load_rows):
     summaries = []
     for (configuration, query_point, article_id), values in sorted(query_groups.items()):
         loads = load_groups[configuration]
+        data_mb_values = [row["data_mb"] for row in load_rows if row["configuration"] == configuration]
+        index_mb_values = [row["index_mb"] for row in load_rows if row["configuration"] == configuration]
         summaries.append({
             "configuration": configuration,
             "query_point": query_point,
@@ -278,6 +294,8 @@ def summarize(run_rows, load_rows):
             "stddev_query_ms": round(statistics.stdev(values), 4),
             "mean_load_ms": round(statistics.mean(loads), 3),
             "stddev_load_ms": round(statistics.stdev(loads), 3),
+            "data_mb_mean": round(statistics.mean(data_mb_values), 3),
+            "index_mb_mean": round(statistics.mean(index_mb_values), 3),
             "partition_count": next(
                 row["partition_count"] for row in run_rows
                 if row["configuration"] == configuration
@@ -288,6 +306,8 @@ def summarize(run_rows, load_rows):
         workload_groups[configuration].append(statistics.mean(values))
     for configuration, values in sorted(workload_groups.items()):
         loads = load_groups[configuration]
+        data_mb_values = [row["data_mb"] for row in load_rows if row["configuration"] == configuration]
+        index_mb_values = [row["index_mb"] for row in load_rows if row["configuration"] == configuration]
         summaries.append({
             "configuration": configuration,
             "query_point": "all",
@@ -297,6 +317,8 @@ def summarize(run_rows, load_rows):
             "stddev_query_ms": round(statistics.stdev(values), 4),
             "mean_load_ms": round(statistics.mean(loads), 3),
             "stddev_load_ms": round(statistics.stdev(loads), 3),
+            "data_mb_mean": round(statistics.mean(data_mb_values), 3),
+            "index_mb_mean": round(statistics.mean(index_mb_values), 3),
             "partition_count": next(
                 row["partition_count"] for row in run_rows
                 if row["configuration"] == configuration
@@ -328,11 +350,14 @@ def run_benchmark(args):
                     args.interval,
                     partition_start,
                 )
+                data_mb, index_mb = table_size_mb(connection, args.database)
                 partitions = partition_count(connection, args.database)
                 load_rows.append({
                     "configuration": configuration.name,
                     "repetition": repetition,
                     "load_ms": load_ms,
+                    "data_mb": data_mb,
+                    "index_mb": index_mb,
                 })
                 for point in points:
                     query_ms = query_revision(connection, point)
@@ -344,6 +369,8 @@ def run_benchmark(args):
                         "expected_revision_id": point["expected_revision_id"],
                         "query_ms": query_ms,
                         "load_ms": load_ms,
+                        "data_mb": data_mb,
+                        "index_mb": index_mb,
                         "partition_count": partitions,
                     })
                 print(
