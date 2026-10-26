@@ -10,8 +10,11 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+
+
 import pymysql
 import streamlit as st
+import streamlit.components.v1 as components
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import queries  # noqa: E402
@@ -88,8 +91,9 @@ try:
             if previous is None:
                 st.write("This is the first stored version: nothing to compare with.")
             else:
-                diff = difflib.unified_diff((previous[2] or "").splitlines(), (content or "").splitlines(),
-                                            f"revision {previous[0]}", f"revision {revision_id}", lineterm="", n=2)
-                st.code("\n".join(diff) or "No textual change.", language="diff")
+                html = difflib.HtmlDiff(wrapcolumn=80).make_table(
+                    (previous[2] or "").splitlines(), (content or "").splitlines(),
+                    f"revision {previous[0]}", f"revision {revision_id}", context=True, numlines=2)
+                components.html(html, height=500, scrolling=True)
 finally:
     connection.close()
