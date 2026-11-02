@@ -302,20 +302,65 @@ These measurements provide a baseline for the later scalability experiments.
 **Result.** 16 of 16 cases returned the expected revision on MariaDB 13.0.2 (output in docs/experiment1_output.txt). The two revisions in the same second (1003 and 1004) were stored one microsecond apart and both were returned correctly. The current rows end at 2106-02-07 rather than 2038-01-19, because recent MariaDB versions have a larger TIMESTAMP range.
 
 **Conclusion.** The time model is correct to the microsecond when the session time zone is UTC, which every project tool sets.
-# 9. Experiment 2 — [Title]
-
-This section will document the second project experiment once its exact objective and implementation are finalized.
-
-The README will record:
-
-* Research question
-* Experimental setup
-* Method
-* Expected result
-* Observed result
-* Measurements
-* Conclusion
-
+# 9. Experiment 2 — Real Wikipedia History Import
+ 
+> Title proposed by Person 4: confirm it with the team, then keep or change it.
+ 
+## Research Question
+ 
+> **Can we load real, multi-year Wikipedia revision histories so that every revision is stored exactly once, in the right order, with the right content, and can be retrieved at its own moment in time?**
+ 
+Experiment 1 validated the temporal model on a few hand-made revisions. This experiment checks the same promise on **real data**.
+ 
+## Setup
+ 
+```text
+Wikipedia API
+     │   pipeline/download.py   (all revisions of selected articles, oldest first)
+     ▼
+raw JSON
+     │   pipeline/transform.py  (keep id, title, timestamp, author, content; skip hidden revisions)
+     ▼
+cleaned JSON
+     │   pipeline/load_real.py  (replay revisions in time order through apply_wikipedia_revision)
+     ▼
+MariaDB system-versioned table `article`
+     │   pipeline/verify_load.py (independent check against the JSON)
+     ▼
+report: "checked N revisions, 0 problem(s)"
+```
+ 
+Two revisions of the same article can share the same second. The loader separates them by one microsecond each, so no revision is lost.
+ 
+## Method
+ 
+`verify_load.py` re-reads the cleaned JSON and, for **every** revision, asks the database:
+ 
+1. `FOR SYSTEM_TIME AS OF <revision time>` must return this revision (same revision id and same content hash).
+2. `FOR SYSTEM_TIME AS OF <one microsecond earlier>` must return the previous revision (or nothing for the first one).
+3. The number of stored versions of each article must equal the number of loaded revisions.
+## Expected result
+ 
+0 problems: the database holds exactly the revisions of the source file, in the right order.
+ 
+## Observed result and measurements
+ 
+| Item | Value |
+| ---- | ----- |
+| Articles | [fill in] |
+| Time window | [fill in] |
+| Revisions loaded | [fill in] |
+| Stored versions (`FOR SYSTEM_TIME ALL`) | [fill in] |
+| Text size of the dataset | [fill in] |
+| Load time | [fill in] |
+| `verify_load.py` result | [fill in: "checked N revisions, 0 problem(s)"] |
+ 
+Commands and the exact dataset are documented in `README_PERSON2.md`.
+ 
+## Conclusion
+ 
+[fill in after the real load: does the imported history match the source file exactly? Mention any problem found and how it was resolved.]
+ 
 ---
 
 # 10. Experiment 3 — Growth and Partitioning
@@ -403,64 +448,163 @@ The same metrics should be collected consistently across comparable experiments.
 ---
 
 # 12. Setup
-
+ 
+All commands are for **Windows PowerShell** and are run from the repository root (the folder that contains `pipeline/` and `README.md`).
+ 
+> **Two kinds of prompt.** `PS C:\...>` is PowerShell: use it for `docker`, `python` and `git`.
+> `MariaDB [...]>` is the SQL client: use it only for SQL. Type `exit` to leave the SQL client.
+ 
 ## Requirements
-
-The project requires:
-
-* MariaDB
-* SQL client / command-line client
+ 
+* Docker Desktop (running)
+* Python 3 (the team uses 3.13) and `pip`
 * Git
-* The project dataset
-
-The exact MariaDB version will be specified once the experimental environment is finalized.
-
-## Database Setup
-
-The database setup instructions will be added here once the schema has been finalized.
-
-Example:
-
-```bash
-git clone <repository>
-cd <repository>
+* The Python packages `PyMySQL` and `streamlit`
+* MariaDB **13.0.2** (from the Docker image, see below)
+## 1. Get the code
+ 
+```powershell
+git clone https://github.com/Sami-Mountassir/Database-Project
+cd Database-Project
+python -m pip install PyMySQL streamlit
 ```
-
-The SQL initialization scripts can then be executed against the MariaDB instance.
-
+ 
+## 2. Start MariaDB
+ 
+Choose your own root password.
+ 
+```powershell
+docker run --name wikipedia-mariadb -e MARIADB_ROOT_PASSWORD=choose_a_password -p 3306:3306 -d mariadb:latest --max-allowed-packet=134217728
+docker ps
+```
+ 
+`docker ps` must show `wikipedia-mariadb` with status `Up`. Wait about 20 seconds on the first start. Later, use `docker stop wikipedia-mariadb` and `docker start wikipedia-mariadb`; do not run the `docker run` line twice.
+ 
+If port 3306 is already used on your machine, use `-p 3307:3306` and add `--port 3307` to every Python command below.
+ 
+## 3. Create the database, the user and the schema
+ 
+```powershell
+docker cp person1_temporal_schema.sql wikipedia-mariadb:/tmp/person1_temporal_schema.sql
+docker exec -it wikipedia-mariadb mariadb -u root -p
+```
+ 
+In the SQL client:
+ 
+```sql
+DROP DATABASE IF EXISTS wikipedia_time_machine;
+CREATE DATABASE wikipedia_time_machine CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS 'bench'@'%' IDENTIFIED BY 'bench';
+GRANT ALL PRIVILEGES ON wikipedia_time_machine.* TO 'bench'@'%';
+GRANT ALL PRIVILEGES ON timemachine_bench_repeat.* TO 'bench'@'%';
+GRANT ALL PRIVILEGES ON exp1_temporal.* TO 'bench'@'%';
+FLUSH PRIVILEGES;
+USE wikipedia_time_machine;
+SOURCE /tmp/person1_temporal_schema.sql
+SHOW TABLES;
+```
+ 
+`SHOW TABLES` must list `article`. Type `exit` to leave the client. (`DROP DATABASE` deletes everything in that database: use it only on a fresh setup.)
+ 
+Check that the `bench` user can set the session clock, which the loader needs:
+ 
+```powershell
+docker exec -it wikipedia-mariadb mariadb -u bench -pbench -e "SET timestamp = 1700000000; SELECT @@timestamp;"
+```
+ 
+It must print `1700000000.000000`.
+ 
+## 4. Load and verify the sample data
+ 
+```powershell
+python pipeline/load_real.py --input samples/wikipedia_revisions.json --database wikipedia_time_machine --user bench --password bench
+python pipeline/verify_load.py --input samples/wikipedia_revisions.json --database wikipedia_time_machine
+```
+ 
+The second command must end with `checked 20 revisions, 0 problem(s)`. Load into an **empty** database only: loading twice corrupts the timeline. To start over, repeat step 3.
+ 
+## 5. Run the tests
+ 
+```powershell
+python -m unittest discover -s tests -v
+```
+ 
+The last line must be `OK`.
+ 
+## 6. Run the interface
+ 
+```powershell
+python -m streamlit run ui/app.py
+```
+ 
+The browser opens at `http://localhost:8501`. The sidebar defaults (host `127.0.0.1`, port `3306`, user `bench`, password `bench`, database `wikipedia_time_machine`) match the setup above.
+ 
+* Choose an article.
+* Choose the moment either with the **revision slider** or with **exact date and time** (UTC).
+* The page shows the article **as it was** at that moment: title, revision id, author, edit date and the stored text.
+* A date before the first stored version shows "did not exist yet".
+* The **Changes vs previous version** tab shows a side-by-side comparison with the previous version.
+Limits of this version: the content is **wikitext** (raw `[[links]]` and `{{templates}}`), not a rendered web page, and all times are UTC.
+ 
+## 7. Load the full dataset (optional)
+ 
+The downloaded data is large and is not stored in Git (`data/` is ignored). The exact commands, the article list, the time window and the dataset size are in `README_PERSON2.md`. The order is always: download, transform, **reset the database (step 3)**, load, verify.
+ 
+## Troubleshooting
+ 
+| Symptom | Cause and fix |
+| ------- | ------------- |
+| `docker: error during connect` | Docker Desktop is not running. Start it and wait until it says it is running. |
+| `port is already allocated` | Something else uses 3306. Use `-p 3307:3306` and `--port 3307`. |
+| `docker cp ... file not found` / `No such file or directory` | You are not in the repository root. Run `dir` and check that `person1_temporal_schema.sql` is listed. |
+| `ERROR: Failed to open file '/tmp/person1_temporal_schema.sql'` | The `docker cp` line of step 3 was skipped. Run it, then `SOURCE` again. |
+| A `docker` or `python` command typed after `MariaDB [...]>` shows `->` lines | You are inside the SQL client. Type `\c`, then `exit`, then run it in PowerShell. |
+| `Can't connect to MySQL server` | The container is still starting (check `docker logs wikipedia-mariadb` for "ready for connections") or the port is wrong. |
+| `Access denied for user 'bench'` | The user lines of step 3 did not run. Run them again, then `FLUSH PRIVILEGES;`. |
+| `Access denied; you need ... SUPER privilege` | Add `--user root --password <root password>` to the Python command. |
+| `versions stored=X, expected=Y` from `verify_load.py` | The database was not empty before loading. Repeat step 3, then load again. |
+| `Got a packet bigger than 'max_allowed_packet'` | Start the container with `--max-allowed-packet=134217728` as in step 2. |
+| `ModuleNotFoundError: No module named 'pymysql'` or `streamlit` | Install with `python -m pip install PyMySQL streamlit` (use `python -m pip`, not `pip`). |
+| `Start directory is not importable: 'tests'` | You are not in the repository root. |
+ 
 ---
-
-# 13. Running the Experiments
-
-The experiments will be organized separately from the production database schema.
-
-A possible repository structure is:
-
+ 
+# 13. Repository Structure
+ 
 ```text
 .
-├── README.md
+├── README.md                      this file
+├── README_PERSON1.md              schema and temporal-model notes
+├── README_PERSON2.md              data pipeline and real dataset
+├── person1_temporal_schema.sql    schema + apply_wikipedia_revision procedure
+├── bench.py, bench_repeat.py      repeated benchmark (Experiment 3)
+│
+├── pipeline/
+│   ├── download.py                download revisions from the Wikipedia API
+│   ├── transform.py               clean the raw JSON
+│   ├── load_real.py               replay revisions into MariaDB in time order
+│   ├── verify_load.py             check the database against the JSON
+│   └── make_subset.py             create 25% / 50% datasets for growth runs
 │
 ├── sql/
-│   ├── schema/
-│   │   └── ...
-│   │
-│   ├── experiments/
-│   │   ├── temporal/
-│   │   └── growth/
-│   │
-│   └── queries/
+│   └── experiments/temporal/      Experiment 1 (temporal correctness)
 │
-├── data/
-│   └── ...
+├── samples/
+│   └── wikipedia_revisions.json   small sample (3 articles, 20 revisions)
 │
-└── docs/
-    ├── architecture/
-    └── experiments/
+├── ui/
+│   ├── app.py                     Streamlit interface
+│   └── queries.py                 all SQL used by the interface
+│
+├── tests/                         unit tests (python -m unittest discover -s tests)
+├── docs/                          experiment outputs and screenshots
+└── data/                          downloaded datasets (not in Git)
 ```
-
-Each experiment should contain enough information to reproduce its results.
-
+ 
+Each experiment folder or file contains enough information to reproduce its results.
+ 
 ---
+
 
 # 14. Results
 
@@ -515,8 +659,8 @@ These questions will be progressively resolved through the experiments and imple
 * [x] Identify temporal database approach
 * [x] Define initial temporal model
 * [x] Identify historical-date challenge
-* [ ] Finalize schema
-* [ ] Finalize MariaDB environment
+* [x] Finalize schema
+* [x] Finalize MariaDB environment
 
 ### Temporal experiments
 
@@ -537,9 +681,17 @@ These questions will be progressively resolved through the experiments and imple
 ### Implementation
 
 * [ ] Complete database implementation
-* [ ] Implement data import
+* [x] Implement data import
 * [ ] Implement required queries
 * [ ] Run final tests
+
+## Real data and interface
+ 
+* [x] Download, transform and load pipeline for real revisions
+* [x] Independent verification tool (`verify_load.py`)
+* [x] Interface version 0 (article, moment, side-by-side changes)
+* [ ] Real multi-year dataset loaded and verified
+* [ ] Interface checked on the real dataset
 
 ---
 
@@ -556,7 +708,7 @@ Validate temporal model
         │
         ▼
 Task 2
-[Project-specific task]
+Real-data import and interface
         │
         ▼
 Task 3
