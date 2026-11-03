@@ -282,15 +282,14 @@ Expected article version
 
 ### Measurements
 
-The experiment will also record basic characteristics of the imported dataset, including:
+Counts from the test database (`docs/experiment1_output.txt`):
 
-* Number of articles
-* Number of revisions
-* Number of generated temporal rows
-* Database size
-* Import time
-
-These measurements provide a baseline for the later scalability experiments.
+| Item | Value |
+| ---- | ----- |
+| Articles | 2 |
+| Revisions loaded | 7 |
+| Stored versions (`FOR SYSTEM_TIME ALL`) | 7 |
+| Current rows | 2 |
 
 ---
 ## Result
@@ -639,8 +638,11 @@ What does the experiment tell us about the temporal model?
 The following questions are currently part of the investigation:
 
 * How should historical revision dates be mapped to MariaDB system timestamps?
+  -The stored procedure `apply_wikipedia_revision` sets `@@timestamp` to the revision's own time before each insert or update, so `row_start` is the historical moment (`person1_temporal_schema.sql`; `docs/experiment1_output.txt`, `drift_us` is 0 for every row except 1004, which is 1 on purpose).
 * Can historical revisions be imported while preserving their intended temporal order?
+  -Yes. The loader sorts each article's revisions chronologically and `verify_load.py` found 0 problems across 1,017 real revisions (`docs/real_data_verification.txt`).
 * Does `FOR SYSTEM_TIME AS OF` return the expected article version?
+  - Yes, 16 of 16 test cases passed, including boundaries one microsecond apart (`docs/experiment1_output.txt`).
 * How many temporal rows are generated as revisions accumulate?
 * How does database size grow with the number of revisions?
 * How does temporal query performance change as the dataset grows?
