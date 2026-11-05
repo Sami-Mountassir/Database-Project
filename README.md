@@ -302,17 +302,15 @@ Counts from the test database (`docs/experiment1_output.txt`):
 
 **Conclusion.** The time model is correct to the microsecond when the session time zone is UTC, which every project tool sets.
 # 9. Experiment 2 — Real Wikipedia History Import
- 
-> Title proposed by Person 4: confirm it with the team, then keep or change it.
- 
+
 ## Research Question
- 
+
 > **Can we load real, multi-year Wikipedia revision histories so that every revision is stored exactly once, in the right order, with the right content, and can be retrieved at its own moment in time?**
- 
+
 Experiment 1 validated the temporal model on a few hand-made revisions. This experiment checks the same promise on **real data**.
- 
+
 ## Setup
- 
+
 ```text
 Wikipedia API
      │   pipeline/download.py   (all revisions of selected articles, oldest first)
@@ -328,38 +326,71 @@ MariaDB system-versioned table `article`
      ▼
 report: "checked N revisions, 0 problem(s)"
 ```
- 
+
 Two revisions of the same article can share the same second. The loader separates them by one microsecond each, so no revision is lost.
- 
+
 ## Method
- 
+
 `verify_load.py` re-reads the cleaned JSON and, for **every** revision, asks the database:
- 
+
 1. `FOR SYSTEM_TIME AS OF <revision time>` must return this revision (same revision id and same content hash).
 2. `FOR SYSTEM_TIME AS OF <one microsecond earlier>` must return the previous revision (or nothing for the first one).
 3. The number of stored versions of each article must equal the number of loaded revisions.
 ## Expected result
- 
+
 0 problems: the database holds exactly the revisions of the source file, in the right order.
- 
+
 ## Observed result and measurements
- 
-| Item | Value |
-| ---- | ----- |
-| Articles | [fill in] |
-| Time window | [fill in] |
-| Revisions loaded | [fill in] |
-| Stored versions (`FOR SYSTEM_TIME ALL`) | [fill in] |
-| Text size of the dataset | [fill in] |
-| Load time | [fill in] |
-| `verify_load.py` result | [fill in: "checked N revisions, 0 problem(s)"] |
- 
-Commands and the exact dataset are documented in `README_PERSON2.md`.
- 
+
+All rows use the selected window **2024-01-01T00:00:00Z through
+2026-10-22T00:00:00Z**, inclusive UTC. Text MB means decimal UTF-8 content MB,
+excluding JSON metadata and database storage overhead.
+
+| Article | Usable revisions | Stored versions, including current* | Text MB |
+|---|---:|---:|---:|
+| Great Wall of China | 111 | 111 | 6.628311 |
+| Photosynthesis | 129 | 129 | 14.518570 |
+| Apollo 11 | 227 | 227 | 43.510335 |
+| Leonardo da Vinci | 217 | 217 | 30.314905 |
+| Coffee | 333 | 333 | 47.618482 |
+| **Total** | **1017** | **1017** | **142.590603** |
+
+*Stored counts are inferred from the successful verifier's per-article
+`FOR SYSTEM_TIME ALL` count-equality checks, not a separately retained SQL count
+listing. These counts include each article's current version.
+
+| Measurement | Result | Repository evidence |
+|---|---|---|
+| Dataset window, article counts and text sizes | As above | [Person 2 dataset measurements](README_PERSON2.md#real-dataset), cross-checked against the local approved manifest and JSON |
+| Cleaned JSON size | 143,662,715 bytes | [Person 2 dataset measurements](README_PERSON2.md#real-dataset) |
+| Full verification | `checked 1017 revisions, 0 problem(s)` | [Committed database output](docs/real_data_verification.txt) |
+| Stored version counts | Equal to usable counts above | [Verifier count checks](pipeline/verify_load.py) and successful committed output |
+| Actual measured load time for this import | **Missing: no timing record tied to this verified import was found** | Verification output contains no duration; benchmark CSV timings concern separate Experiment 3 runs |
+| Database storage size for this import | Not recorded in the retained Experiment 2 output | Dataset text/JSON sizes above are not database sizes |
+| Timestamp drift | `bad_drift = 0` reported in the earlier handover | [Person 2 handover attribution](README_PERSON2.md#real-database-verification-and-friday-checks); no raw real-data drift-query output is committed |
+
+The local manifest is distributed with the approved dataset; large data files are
+excluded from Git. The committed Person 2 README records its measured values and
+checksum. Rebuild commands and distribution details are at the top of
+[README_PERSON2.md](README_PERSON2.md#rebuild-the-approved-real-dataset).
+
+Request for Ghofrane (prepared, not sent): please provide any existing elapsed-time
+record for the verified real-data import, with units, timing boundaries and the
+associated command/database/dataset. Please also provide the original drift-query
+output if available. No reset or reload is needed to answer this request.
+
 ## Conclusion
- 
-[fill in after the real load: does the imported history match the source file exactly? Mention any problem found and how it was resolved.]
- 
+
+The committed full-verification result supports that the selected articles have
+the expected number of stored versions and that every checked revision is
+retrievable at its effective historical timestamp with the expected revision ID
+and content hash. Checks immediately before each timestamp also passed. This
+validates the imported history against the approved source file under the
+verifier's checks; content equality is assessed through hashes. It does not
+establish import throughput, query scalability or storage efficiency. Load-time
+evidence remains missing, so no performance conclusion is drawn. The verified
+database was not reset or reloaded for this documentation review.
+
 ---
 
 # 10. Experiment 3 — Growth and Partitioning

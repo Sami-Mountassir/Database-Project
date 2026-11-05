@@ -1,14 +1,154 @@
 # Person 2: Wikipedia pipeline
 
-Run commands from the repository root (the folder containing `pipeline/`).
+## Rebuild the approved real dataset
 
-```sh
-python -m unittest discover -s tests -v
-python pipeline/download.py --start 2020-01-01T00:00:00Z --end 2025-01-01T00:00:00Z
-python pipeline/transform.py
+These instructions reproduce the data pipeline in a **separate environment**.
+They were checked against the current scripts on 2026-11-05; no download, database
+initialization, load or live verification was executed during that review.
+Ghofrane's verified team database must remain untouched. The generic sample
+instructions later in this file are not the approved real-data rebuild procedure.
+
+### Requirements and environment
+
+Use PowerShell from the repository root containing `pipeline/`. Requirements:
+Python 3 (CLI checks and unit tests passed locally on Python 3.12.5), pip, Git,
+and PyMySQL for database access. The team's documented database is MariaDB
+13.0.2. A reproduction database must be separate and initially empty, with
+`article` and `apply_wikipedia_revision` from `person1_temporal_schema.sql`,
+UTF-8 support (`utf8mb4`), sufficient packet limits for article contents, and
+permission for historical session timestamps. Coordinate its provisioning with
+Person 1 using [their schema documentation](README_PERSON1.md); no reset command
+is required or supplied here. Streamlit is not needed for pipeline verification.
+
+```powershell
+python --version
 python -m pip install PyMySQL
-python pipeline/load_real.py --database wikipedia_time_machine
 ```
+
+### Obtain and check the approved snapshot
+
+The shared Drive folder is **Wikipedia Time Machine - Final Dataset 2024-2026**.
+A direct Drive URL is **missing from the workspace documentation**. Ask Moaz or
+Ghofrane for the existing link and confirm reader access; sharing availability
+has not been independently rechecked during this review. Obtain
+`wikipedia_time_machine_2024-2026.zip`, `manifest.json` and `SHA256SUMS.txt`.
+Do not use the older 2023-2026 package.
+
+Before extracting, compare the ZIP SHA-256:
+
+```powershell
+(Get-FileHash -Algorithm SHA256 .\wikipedia_time_machine_2024-2026.zip).Hash
+```
+
+Expected ZIP: `8105257a5999a14fa874f1b0c6a3db3451134a6ed0107ad1752d1d4cc30998ed`.
+In a fresh checkout with no existing `data/real` directory:
+
+```powershell
+if (Test-Path data/real) { throw 'Use a separate fresh checkout; preserve existing data.' }
+Expand-Archive -LiteralPath .\wikipedia_time_machine_2024-2026.zip -DestinationPath .
+(Get-FileHash -Algorithm SHA256 data/real/cleaned.json).Hash
+Get-Content data/real/SHA256SUMS.txt
+(Get-FileHash -Algorithm SHA256 data/real/manifest.json).Hash
+(Get-FileHash -Algorithm SHA256 data/real/DATASET_REPORT.md).Hash
+```
+
+Expected cleaned SHA-256:
+`e876db36a7235fd9ae21fb013b505445852ccc5376a5a256ca2011cd684e7c10`.
+Compare each member hash with `SHA256SUMS.txt`. Confirm the manifest window is
+2024-01-01T00:00:00Z through 2026-10-22T00:00:00Z inclusive UTC.
+Expected usable revisions: Great Wall of China 111, Photosynthesis 129,
+Apollo 11 227, Leonardo da Vinci 217, Coffee 333; total 1,017 across five articles.
+Text is 142,590,603 UTF-8 bytes; cleaned JSON is 143,662,715 bytes.
+The local approved JSON's checksum, counts and text sizes were checked again on
+2026-11-05. No large data files are committed.
+
+### Historical preparation from the larger download (alternative path)
+
+Skip this stage when using the approved shared snapshot. In another fresh checkout,
+place the preserved larger 2023-2026 `raw.json` and `cleaned.json` under `data/real/`,
+then run:
+
+```powershell
+python pipeline/prepare_2024_candidate.py
+```
+
+This tracked script has no CLI flags. It verifies the raw-to-cleaned transformation,
+selects the inclusive 2024 window from the existing cleaned records, preserves their
+fields/content, sorts with the loader's ordering and writes `data/real/2024_candidate`.
+It excludes 485 older usable records; transformation excludes two unavailable Apollo
+11 revisions. It refuses an existing candidate directory. Never use `python -O`,
+because the script uses assertions for its safety and integrity checks.
+The original data remains in `data/real`; the approved output is the candidate's
+`cleaned.json`. Use `--input data/real/2024_candidate/cleaned.json` in both database
+commands below if following this alternative. Verify its checksum first.
+
+The original raw download covered 2023-01-01T00:00:00Z through
+2026-10-22T00:00:00Z. These current CLI commands reproduce the download and transform
+stages in a fresh checkout; exact historical shell invocations were not retained:
+
+```powershell
+python pipeline/download.py --start 2023-01-01T00:00:00Z --end 2026-10-22T00:00:00Z --output data/real/raw.json
+python pipeline/transform.py --input data/real/raw.json --output data/real/cleaned.json
+python pipeline/prepare_2024_candidate.py
+```
+
+A fresh API fetch may differ due to later content suppression. The historical
+preparation script intentionally checks the recorded snapshot counts and text size.
+The shared approved checksum identifies the exact experimental input; packaging
+metadata can differ when regenerating the ZIP, so use the published archive to
+reproduce its archive checksum. The 2024 dataset was filtered from the larger
+download, not downloaded independently.
+
+### Load and verify only in the separate reproduction database
+
+Have Person 1 provision an empty reproduction database named
+`wikipedia_time_machine_rebuild` with the existing schema/procedure. Never point
+this load at the team's verified `wikipedia_time_machine` database. The commands
+below use the current CLI connection defaults on localhost; adapt `--host`,
+`--port` and `--user` to the reproduction environment. For a non-default password,
+read it interactively and pass `--password ($rebuildCredential.GetNetworkCredential().Password)`
+to both commands; do not write passwords into documentation or shell history.
+The CLI defaults remain defined by the existing scripts; no credential handling
+code was changed.
+
+```powershell
+$rebuildCredential = Get-Credential -UserName bench -Message 'Separate reproduction database credentials'
+python pipeline/load_real.py --input data/real/cleaned.json --database wikipedia_time_machine_rebuild --table article --user $rebuildCredential.UserName --password ($rebuildCredential.GetNetworkCredential().Password)
+python pipeline/verify_load.py --input data/real/cleaned.json --database wikipedia_time_machine_rebuild --every 1 --user $rebuildCredential.UserName --password ($rebuildCredential.GetNetworkCredential().Password)
+Remove-Variable rebuildCredential
+```
+
+Expected successful output is `Loaded 1017 revisions into wikipedia_time_machine_rebuild.article`
+and `checked 1017 revisions, 0 problem(s)`. These are expected reproduction results,
+not newly executed database results. The existing committed real-database evidence
+is [docs/real_data_verification.txt](docs/real_data_verification.txt); its output
+contains no load duration or raw drift-query result.
+
+### Final-week review and remaining evidence
+
+Executed during the documentation review: CLI `--help` for download, transform,
+load and verification; approved JSON integrity/count checks; and
+`python -m unittest discover -s tests -v`: **45 passed, 0 failures, 0 errors**.
+The preparation source and referenced schema were inspected without running them.
+
+Experiment 2 is documented in [README Section 9](README.md#9-experiment-2--real-wikipedia-history-import).
+No actual elapsed load time tied to Ghofrane's verified import was found in the
+repository or local dataset reports. Experiment 3 benchmark CSV timings are
+separate measurements and cannot fill this gap. Earlier `bad_drift = 0` is a
+handover report; the raw real-data drift-query output is not committed.
+
+Prepared request (not sent): Ghofrane, please supply any existing timing log for
+the verified approved-dataset import, including units, timing boundaries and
+command/environment, plus the raw drift-query output if available. Please also
+confirm the existing shared Drive URL and teammate access. No reload is requested.
+
+The separate November 2 final-week plan was not found in the workspace; this
+review follows Moaz's pasted final-week checkpoints. Documentation can be published,
+but full final-week evidence remains pending the timing record and shared-link/access
+confirmation. Prepare the daily done / next / blocked update for the team's 18:00
+check-in; no team message was sent by this review.
+
+## Pipeline behavior and historical sample
 
 The downloader follows `rvcontinue` in batches of at most 50 content revisions,
 oldest first. The default fetches the entire five-year window for all five default
@@ -41,7 +181,7 @@ Person 1's setup instructions, then load the sample directly (no transform neede
 
 ```sh
 python -m pip install PyMySQL
-python pipeline/load_real.py --input samples/wikipedia_revisions.json --database wikipedia_time_machine --user bench --password bench
+python pipeline/load_real.py --input samples/wikipedia_revisions.json --database wikipedia_time_machine --user bench
 ```
 
 Use a fresh database for repeat imports so historical revisions are not replayed
